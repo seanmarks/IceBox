@@ -6,6 +6,7 @@
 #include <exception>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -43,7 +44,8 @@ int main(int argc, char** argv)
 	// Water geometry
 	double PI = 3.14159265358979323846;
 	double theta = 109.47 * 2.0*PI/360.0; // [radians]
-	double l = 1.0; // [nm]
+	double l = 0.34;  // distance between nearest-neighbor oxygens [nm]
+	double l_OH = 0.1; // length of O-H bonds [nm]
 
 	// Derived geometric constants
 	double l_xy = l*sqrt(2.0/3.0*(1.0 - cos(theta)));
@@ -52,7 +54,6 @@ int main(int argc, char** argv)
 	double dz = 0.5*sqrt(l*l - l_xy*l_xy);
 
 	//--- Construct the HCP unit cell for the oxygens ---//
-	typedef double rvec[3];
 	rvec unitCell[8];
 
 	// Unit cell box lengths
@@ -136,10 +137,9 @@ int main(int argc, char** argv)
 	}
 
 	//--- Replicate the unit cell to produce the oxygen HCP lattice ---//
-//	int numWaters = waterGrid[0]*waterGrid[1]*waterGrid[2];
-//	int unitCellGrid[3] = { waterGrid[0]/2, waterGrid[1]/4, waterGrid[2]/2 };
+	int unitCellGrid[3] = { 13, 6, 7 };
 
-	int unitCellGrid[3] = { 2, 1, 1 };
+	// Eight waters per unit cell
 	int numWaters = 8*unitCellGrid[0]*unitCellGrid[1]*unitCellGrid[2];
 
 	// Allocate memory
@@ -171,21 +171,279 @@ int main(int argc, char** argv)
 		boxL[j] = unitCellGrid[j]*unitCellBoxL[j];
 	}
 
+	//----- Place hydrogens using a Monte Carlo routine -----//
+	// Method of Buch et al., J. Phys. Chem. B 102.44 (1998)
+
+	// Set up RNG engine
+	std::seed_seq seedSequence = { 749725171 };
+	std::mt19937  rng(seedSequence);	// Mersenne Twister
+
+	// Find all O-O nearest-neighbor pairs, and randomly assign an H to one atom in each pair
+	int   numH = 2*numWaters;
+	int   numPairs = numH;
+	Pair* pairs = (Pair*) malloc(numPairs*sizeof(Pair)); // NOTE: index over pairs = index over H's
+
+	std::vector<int>  hydrogenCounts(numWaters, 0); 		// how many bound H's each oxygen has
+	std::vector<int>  hydrogenOwners(numH, 0);	   			// which O has the H
+	std::vector<bool> doesFirstAtomHaveHydrogen(numPairs);	// Does pair[][0] have the H?
+
+	std::uniform_int_distribution<int> coin_flip(0, 1);
+
+	int    pairIndex = 0;
+	double dist, distSq, pairDist = 1.01*l, scale_factor;
+	rvec   x_i_j; // Direction: i --> j
+	for ( int i=0; i<numWaters; ++i )
+	{
+		for ( int j=i+1; j<numWaters; ++j )
+		{
+			// Minimum image vector: i --> j
+			minImage(x_HCP[i], x_HCP[j], boxL, x_i_j, distSq);
+			dist = sqrt(distSq); // = || x_i_j ||_2
+
+			if ( dist <= pairDist )
+			{
+				// Record the pair
+				pairs[pairIndex][0] = i;
+				pairs[pairIndex][1] = j;
+
+				// Randomly assign the H to one of the paired atoms
+				if ( coin_flip(rng) == 0 )
+				{
+					// Give to 'i'
+					++(hydrogenCounts[i]);
+					hydrogenOwners[pairIndex] = i;
+					doesFirstAtomHaveHydrogen[pairIndex] = true;
+				}
+				else
+				{
+					// Give to 'j'
+					++(hydrogenCounts[j]);
+					hydrogenOwners[pairIndex] = j;
+					doesFirstAtomHaveHydrogen[pairIndex] = false;
+				}
+
+				++pairIndex;
+			}
+		}
+
+		// numPairs == numHydrogens
+		if ( pairIndex == numPairs )
+		{
+			break;
+		}
+	}
+
+	// Stochastically reassign hydrogens until all O's have two H's each
+	// - For each pair, the owner is the O closest to the H; the other O is its partner
+	int delta, delta_trial, owner, partner;
+	bool isSwapAccepted;
+	std::uniform_int_distribution<int> randomPair(0, numPairs - 1);
+
+	while ( areHydrogensCorrectlyPlaced(hydrogenCounts) == false ) //TODO
+	{
+		pairIndex = randomPair(rng);
+		owner = hydrogenOwners[pairIndex];
+
+		// Where are the owner and partner in the pairs array?
+		if ( pairs[pairIndex][0] == owner )
+		{
+			partner = pairs[pairIndex][1];
+		}
+		else
+		{
+			partner = pairs[pairIndex][0];
+		}
+
+		// Current difference 
+		delta = abs(hydrogenCounts[owner] - hydrogenCounts[partner]);
+
+		// Result of proposed swap
+		delta_trial = abs( (hydrogenCounts[owner] - 1) - (hydrogenCounts[partner] + 1) );
+
+		// Determine whether to accept the proposed swap
+		if ( delta_trial < delta )
+		{
+			isSwapAccepted = true;
+		}
+		else if ( delta_trial == delta )
+		{
+			// 50/50 chance to accept anyway
+			isSwapAccepted = static_cast<bool>( coin_flip(rng) );
+		}
+		else
+		{
+			isSwapAccepted = false;
+		}
+
+		// FIXME
+		/*
+		if ( (hydrogenCounts[owner] > hydrogenCounts[partner]) && (!isSwapAccepted) )
+		{
+			std::cerr << "Swap NOT accepted when it should have been!" << std::endl;
+		}
+		else if ( (hydrogenCounts[owner] < hydrogenCounts[partner]) && (isSwapAccepted) )
+		{
+			std::cerr << "Swap accepted when it should NOT have been!" << std::endl;
+		}
+		*/
+		/*
+		std::cout << "  ATTEMPTED SWAP" << std::endl;
+		std::cout << "    Owner:   " << owner << "(has " << hydrogenCounts[owner] << " H's)" << std::endl;
+		std::cout << "    Partner: " << partner << "(has " << hydrogenCounts[partner] << " H's)" << std::endl;
+		std::cout << "    SwapAccepted: " << isSwapAccepted << std::endl;
+		*/
+		// Make any necessary changes
+		if ( isSwapAccepted )
+		{
+			// NOTE: owner/partner here refer to the roles in the "old" arrangement
+
+			hydrogenOwners[pairIndex] = partner;
+
+			--(hydrogenCounts[owner]);
+			++(hydrogenCounts[partner]);
+
+			if ( doesFirstAtomHaveHydrogen[pairIndex] == true )
+			{
+				doesFirstAtomHaveHydrogen[pairIndex] = false;
+			}
+			else
+			{
+				doesFirstAtomHaveHydrogen[pairIndex] = true;
+			}
+		}
+	}
+
+	//----- Construct the full coordinates array -----//
+	int    numAtoms = 4*numWaters, count, atomIndex;
+	rvec   x_OW, x_MW, x_HW1, x_HW2;
+	rvec*  x_all = (rvec*) malloc(numAtoms*sizeof(rvec));
+	double a_M = 0.1345833509;
+
+	for ( int i=0; i<numWaters; ++i )
+	{
+		// Oxygen
+		for ( int d=0; d<3; ++d )
+		{
+			x_OW[d] = x_HCP[i][d];
+		}
+
+		// Set the positions of this O's hydrogens
+		count = 0;
+		for ( int j=0; j<numH; ++j )
+		{
+			if ( hydrogenOwners[j] == i ) // If the owner of hydrogen j is oxygen i...
+			{
+				owner = i;
+
+				// Infer the index of the partner
+				if ( doesFirstAtomHaveHydrogen[j] == true )
+				{
+					partner = pairs[j][1];
+				}
+				else
+				{
+					partner = pairs[j][0];
+				}
+
+				// Connecting vector: owner --> partner
+				minImage(x_HCP[owner], x_HCP[partner], boxL, x_i_j, distSq);
+				dist = sqrt(distSq);
+				scale_factor = l_OH/dist;
+
+				// HW1
+				if ( count == 0 )
+				{
+					for ( int d=0; d<3; ++d ) 
+					{
+						x_HW1[d] = x_HCP[owner][d] + scale_factor*x_i_j[d];
+					}
+					keepInBox(boxL, x_HW1);
+
+					++count;
+				}
+				// HW2
+				else if ( count == 1 )
+				{
+					for ( int d=0; d<3; ++d ) 
+					{
+						x_HW2[d] = x_HCP[owner][d] + scale_factor*x_i_j[d];
+					}
+					keepInBox(boxL, x_HW2);
+
+					++count;
+				}
+				// Done
+				else
+				{
+					break;
+				}
+			}
+		}
+
+		// Construct virtual site "M"
+		for ( int d=0; d<3; ++d )
+		{
+			x_MW[d] = (1.0 - 2.0*a_M)*x_OW[d] + a_M*(x_HW1[d] + x_HW2[d]);
+		}
+		keepInBox(boxL, x_MW);
+
+		// Put results into composite array
+		atomIndex = 4*i;
+		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_OW[d]; }
+
+		++atomIndex;
+		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_HW1[d]; }
+
+		++atomIndex;
+		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_HW2[d]; }
+
+		++atomIndex;
+		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_MW[d]; }
+	}
+
 	//----- Write .gro file -----//
 	// - Note: .gro file indexing starts with 1!
 
-	// Include virtual sites
-	FILE* pGroFile;
-	pGroFile = fopen("outconf.gro", "w");
-	fprintf( pGroFile, "Oxygen HCP lattice \n");
-	fprintf( pGroFile, "    %d\n", numWaters );
+	// File name
+	std::ostringstream ossGroFileName;
+	ossGroFileName << "initconf_ice_" << numWaters << ".gro";
+	std::string groFileName( ossGroFileName.str() );
 
-	atomCounter = 0;
+	FILE* pGroFile;
+	pGroFile = fopen(groFileName.c_str(), "w");
+	fprintf( pGroFile, "TIP4P/Ice in a box\n" );
+	fprintf( pGroFile, "    %d\n", numAtoms );
+
 	for ( int i=0; i<numWaters; ++i )
 	{
+		// OW
+		atomIndex = 4*i;	   // Index in the coordinates array "x_all"
+
 		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							i+1, "ICE", "OW", i+1,
-						    x_HCP[i][0], x_HCP[i][1], x_HCP[i][2] );
+							i+1, "ICE", "OW", atomIndex+1,
+						    x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
+
+		// HW1
+		++atomIndex;
+
+		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
+							i+1, "ICE", "HW1", atomIndex+1,
+						    x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
+
+		// HW2
+		++atomIndex;
+
+		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
+							i+1, "ICE", "HW2", atomIndex+1,
+							x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
+
+		// MW
+		++atomIndex;
+
+		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
+							i+1, "ICE", "MW", atomIndex+1,
+							x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
+
 	}
 	fprintf( pGroFile, "   %2.5f   %2.5f   %2.5f\n", 
 					   boxL[0], boxL[1], boxL[2] );
@@ -194,6 +452,16 @@ int main(int argc, char** argv)
 
 	//----- Cleanup -----//
 	free(x_HCP);
+	free(x_all);
+	free(pairs);
+
+	/*
+	for ( int i=0; i<numH; ++i )
+	{
+		free(pairs[i]);
+	}
+	free(pairs);
+	*/
 
 	/*
 	if ( argc < 2 )
@@ -365,4 +633,50 @@ int main(int argc, char** argv)
 	// Cleanup
 	free(x_pdb);
 	*/
+}
+
+// Applies the minimum image convention
+void minImage(const rvec x1, const rvec x2, const rvec boxL, rvec x12, double& distSq)
+{
+	distSq = 0.0;
+
+	for ( int d=0; d<3; d++ )
+	{
+		x12[d] = x2[d] - x1[d];
+		// Apply minimum image convention
+		if      ( x12[d] >  0.5*boxL[d] ) { x12[d] -= boxL[d]; }
+		else if ( x12[d] < -0.5*boxL[d] ) { x12[d] += boxL[d]; }
+
+		distSq += x12[d]*x12[d];
+	}
+
+	return;
+}
+
+// Keeps the atom in the simulaton box by applying PBCs
+void keepInBox(const rvec boxL, rvec x)
+{
+	for ( int d=0; d<3; d++ )
+	{
+		// Apply minimum image convention
+		if      ( x[d] > boxL[d] ) { x[d] -= boxL[d]; }
+		else if ( x[d] < 0.0 )     { x[d] += boxL[d]; }
+	}
+
+	return;
+
+}
+
+// Checks whether each oxygen has 2 hydrogens
+bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts)
+{
+	int numWaters = hydrogenCounts.size();
+	for ( int i=0; i<numWaters; i++ )
+	{
+		if ( hydrogenCounts[i] != 2 )
+		{
+			return false;
+		}
+	}
+	return true;
 }
