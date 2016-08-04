@@ -21,31 +21,15 @@ int main(int argc, char** argv)
 
 	// FIXME Input number of waters
 
-	/*
-	int waterGrid[3] = { 16, 16, 16 };
-
-	//--- Inpuut checks ---// (FIXME add error messages)
-	if ( waterGrid[0] % 2 != 0 )
-	{
-		exit(1);
-	}
-	else if ( waterGrid[1] % 4 != 0 )
-	{
-		exit(1);
-	}
-	else if ( waterGrid[2] % 2 != 0 )
-	{
-		exit(1);
-	}
-	*/
-
 	//---- Geometric constants -----//
 
-	// Water geometry
+	// Water geometry: TIP4P/Ice
 	double PI = 3.14159265358979323846;
-	double theta = 109.47 * 2.0*PI/360.0; // [radians]
-	double l = 0.34;  // distance between nearest-neighbor oxygens [nm]
-	double l_OH = 0.1; // length of O-H bonds [nm]
+	double theta = 109.47 * 2.0*PI/360.0; 	  // tetrahedral bond angle [radians]
+	double theta_HOH = 104.52 * 2.0*PI/360.0; // H-O-H bond angle [radians]
+	double l = 0.275;      		// distance between nearest-neighbor oxygens [nm]
+	double l_OH = 0.09572; 		// length of O-H bonds [nm]
+	double l_OM = 0.01577;		// O-M distance [nm]
 
 	// Derived geometric constants
 	double l_xy = l*sqrt(2.0/3.0*(1.0 - cos(theta)));
@@ -53,7 +37,12 @@ int main(int argc, char** argv)
 	double dy = l_xy/2.0;
 	double dz = 0.5*sqrt(l*l - l_xy*l_xy);
 
+	// - Distance between H's [nm]
+	double l_HH = l_OH*sqrt(2.0*(1.0 - cos(theta_HOH))); // ~0.15139 nm
+
 	//--- Construct the HCP unit cell for the oxygens ---//
+	// - Start with perfectly tetrahedral geometry
+	std::cout << "  IceBox: Constructing HCP unit cell for oxygens." << std::endl;
 	rvec unitCell[8];
 
 	// Unit cell box lengths
@@ -137,7 +126,12 @@ int main(int argc, char** argv)
 	}
 
 	//--- Replicate the unit cell to produce the oxygen HCP lattice ---//
+	// - To get about 4,000 ice molecules in a roughly cubic volume, use:
+	//   			int unitCellGrid[3] = { 12, 6, 7 };
 	int unitCellGrid[3] = { 13, 6, 7 };
+	//int unitCellGrid[3] = { 2, 2, 2 };
+
+	std::cout << "  IceBox: Constructing full HCP lattice of oxygens." << std::endl;
 
 	// Eight waters per unit cell
 	int numWaters = 8*unitCellGrid[0]*unitCellGrid[1]*unitCellGrid[2];
@@ -190,7 +184,7 @@ int main(int argc, char** argv)
 	std::uniform_int_distribution<int> coin_flip(0, 1);
 
 	int    pairIndex = 0;
-	double dist, distSq, pairDist = 1.01*l, scale_factor;
+	double dist, distSq, pairDist = 1.01*l;
 	rvec   x_i_j; // Direction: i --> j
 	for ( int i=0; i<numWaters; ++i )
 	{
@@ -235,6 +229,7 @@ int main(int argc, char** argv)
 
 	// Stochastically reassign hydrogens until all O's have two H's each
 	// - For each pair, the owner is the O closest to the H; the other O is its partner
+	std::cout << "  IceBox: Stochastically assigning hydrogen atoms." << std::endl;
 	int delta, delta_trial, owner, partner;
 	bool isSwapAccepted;
 	std::uniform_int_distribution<int> randomPair(0, numPairs - 1);
@@ -275,23 +270,6 @@ int main(int argc, char** argv)
 			isSwapAccepted = false;
 		}
 
-		// FIXME
-		/*
-		if ( (hydrogenCounts[owner] > hydrogenCounts[partner]) && (!isSwapAccepted) )
-		{
-			std::cerr << "Swap NOT accepted when it should have been!" << std::endl;
-		}
-		else if ( (hydrogenCounts[owner] < hydrogenCounts[partner]) && (isSwapAccepted) )
-		{
-			std::cerr << "Swap accepted when it should NOT have been!" << std::endl;
-		}
-		*/
-		/*
-		std::cout << "  ATTEMPTED SWAP" << std::endl;
-		std::cout << "    Owner:   " << owner << "(has " << hydrogenCounts[owner] << " H's)" << std::endl;
-		std::cout << "    Partner: " << partner << "(has " << hydrogenCounts[partner] << " H's)" << std::endl;
-		std::cout << "    SwapAccepted: " << isSwapAccepted << std::endl;
-		*/
 		// Make any necessary changes
 		if ( isSwapAccepted )
 		{
@@ -314,11 +292,16 @@ int main(int argc, char** argv)
 	}
 
 	//----- Construct the full coordinates array -----//
+	std::cout << "  IceBox: Constructing full array of atomic positions." << std::endl;
 	int    numAtoms = 4*numWaters, count, atomIndex;
+	double norm_x;
 	rvec   x_OW, x_MW, x_HW1, x_HW2;
+	rvec   x_OO_1, x_OO_2, unitBisector, unitNormal; // working vectors
 	rvec*  x_all = (rvec*) malloc(numAtoms*sizeof(rvec));
-	double a_M = 0.1345833509;
 
+	// Length of the projection of the O-H bond onto the H-O-H unit bisector
+	double l_proj = sqrt(l_OH*l_OH - l_HH*l_HH/4.0);
+	
 	for ( int i=0; i<numWaters; ++i )
 	{
 		// Oxygen
@@ -327,10 +310,11 @@ int main(int argc, char** argv)
 			x_OW[d] = x_HCP[i][d];
 		}
 
-		// Set the positions of this O's hydrogens
+		// For the rest, first get vectors connecting the associated oxygens
 		count = 0;
 		for ( int j=0; j<numH; ++j )
 		{
+			
 			if ( hydrogenOwners[j] == i ) // If the owner of hydrogen j is oxygen i...
 			{
 				owner = i;
@@ -346,46 +330,49 @@ int main(int argc, char** argv)
 				}
 
 				// Connecting vector: owner --> partner
-				minImage(x_HCP[owner], x_HCP[partner], boxL, x_i_j, distSq);
-				dist = sqrt(distSq);
-				scale_factor = l_OH/dist;
-
-				// HW1
 				if ( count == 0 )
 				{
-					for ( int d=0; d<3; ++d ) 
-					{
-						x_HW1[d] = x_HCP[owner][d] + scale_factor*x_i_j[d];
-					}
-					keepInBox(boxL, x_HW1);
-
+					minImage(x_HCP[owner], x_HCP[partner], boxL, x_OO_1, distSq);
 					++count;
 				}
-				// HW2
 				else if ( count == 1 )
 				{
-					for ( int d=0; d<3; ++d ) 
-					{
-						x_HW2[d] = x_HCP[owner][d] + scale_factor*x_i_j[d];
-					}
-					keepInBox(boxL, x_HW2);
-
+					minImage(x_HCP[owner], x_HCP[partner], boxL, x_OO_2, distSq);
 					++count;
 				}
-				// Done
 				else
 				{
+					// Found both H's
 					break;
 				}
 			}
 		}
 
-		// Construct virtual site "M"
+		// Unit vector along the H-O-H bisector
+		for ( int d=0; d<3; ++d ) { unitBisector[d] = x_OO_1[d] + x_OO_2[d]; }
+		norm_x = norm(unitBisector);
+		for ( int d=0; d<3; ++d ) { unitBisector[d] /= norm_x; }
+
+		// Unit vector normal to the H-O-H bisector, in the H-O-H plane
+		for ( int d=0; d<3; ++d ) { unitNormal[d] = x_OO_2[d] - x_OO_1[d]; }
+		norm_x = norm(unitNormal);
+		for ( int d=0; d<3; ++d ) { unitNormal[d] /= norm_x; }
+
+		// Use these unit vectors to construct HW1, HW2, and M
 		for ( int d=0; d<3; ++d )
 		{
-			x_MW[d] = (1.0 - 2.0*a_M)*x_OW[d] + a_M*(x_HW1[d] + x_HW2[d]);
+			x_HW1[d] = x_OW[d] + l_proj*unitBisector[d] + (l_HH/2.0)*unitNormal[d];
+			x_HW2[d] = x_OW[d] + l_proj*unitBisector[d] - (l_HH/2.0)*unitNormal[d];
+			x_MW[d]  = x_OW[d] + l_OM*unitBisector[d];
 		}
-		keepInBox(boxL, x_MW);
+
+		// DON'T correct for PBCs in this way! GROMACS likes to be given whole molecules
+		// - mdrun "sees" how to handle PBCs based on the settings in the *.mdp file
+		//
+		//keepInBox(boxL, x_HW1);
+		//keepInBox(boxL, x_HW2);
+		//keepInBox(boxL, x_MW);
+		//
 
 		// Put results into composite array
 		atomIndex = 4*i;
@@ -401,8 +388,52 @@ int main(int argc, char** argv)
 		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_MW[d]; }
 	}
 
+	// Check results (use 1% margin of error)
+	std::cout << "  IceBox: Checking configuration." << std::endl;
+	for ( int i=0; i<numWaters; ++i )
+	{
+		atomIndex = 4*i;
+
+		// O-H1
+		minImage(x_all[atomIndex], x_all[atomIndex+1], boxL, x_i_j, distSq);
+		dist = sqrt(distSq);
+		if ( dist > 1.01*l_OH )
+		{
+			std::cerr << "  Molecule " << i << ": OW-HW1 bond is " << dist << " nm " 
+					  << "(should be " << l_OH << " nm)." << std::endl;
+		}
+
+		// O-H2
+		minImage(x_all[atomIndex], x_all[atomIndex+2], boxL, x_i_j, distSq);
+		dist = sqrt(distSq);
+		if ( dist > 1.01*l_OH )
+		{
+			std::cerr << "  Molecule " << i << ": OW-HW2 bond is " << dist << " nm "
+				      << "(should be " << l_OH << " nm)." << std::endl;
+		}
+
+		// H1-H2
+		minImage(x_all[atomIndex+1], x_all[atomIndex+2], boxL, x_i_j, distSq);
+		dist = sqrt(distSq);
+		if ( dist > 1.01*l_HH )
+		{
+			std::cerr << "  Molecule " << i << ": HW1-HW2 bond is " << dist << " nm "
+					  << "(should be " << l_HH << " nm)." << std::endl;
+		}
+
+		// O-M
+		minImage(x_all[atomIndex], x_all[atomIndex+3], boxL, x_i_j, distSq);
+		dist = sqrt(distSq);
+		if ( dist > 1.01*l_OM ) 
+		{
+			std::cerr << "  Molecule " << i << ": OW-MW bond is " << dist << " nm "
+					  << "(should be " << l_OM << " nm)." << std::endl;
+		}
+	}
+
 	//----- Write .gro file -----//
 	// - Note: .gro file indexing starts with 1!
+	std::cout << "  IceBox: Writing .gro file." << std::endl;
 
 	// File name
 	std::ostringstream ossGroFileName;
@@ -455,184 +486,6 @@ int main(int argc, char** argv)
 	free(x_all);
 	free(pairs);
 
-	/*
-	for ( int i=0; i<numH; ++i )
-	{
-		free(pairs[i]);
-	}
-	free(pairs);
-	*/
-
-	/*
-	if ( argc < 2 )
-	{
-		std::cerr << "Error: Must submit pdb file." << std::endl;
-		exit(1);
-	}
-
-	// Input file
-	std::string pdbFile(argv[1]);
-	int numAtomsPdb = 1296;
-	int numWaters   = 432;
-
-	// Allocate memory for input array
-	rvec* x_pdb = (rvec *) malloc(numAtomsPdb*sizeof(rvec));
-
-
-
-	//----- Read .pdb file -----//
-	std::ifstream 	   ifs(pdbFile);
-	std::istringstream iss;
-	std::string   	   line, atomType, atomName, atomClass;
-	int			  	   atomIndex, moleculeIndex;
-
-	int atomCounter = 0;
-	while ( getline(ifs, line) && (atomCounter < numAtomsPdb) )
-	{
-		iss.str(line);
-
-		iss >> atomClass; iss >> atomIndex; 
-		iss >> atomName;  iss >> atomType;
-		iss >> moleculeIndex;
-
-		// {x,y,z} coordinates [Angstroms]
-		iss >> x_pdb[atomCounter][0];
-		iss >> x_pdb[atomCounter][1];
-		iss >> x_pdb[atomCounter][2];
-
-		atomCounter++;
-	}
-	ifs.close();
-
-	// Convert from [Angstroms] --> [nm]
-	for ( int i=0; i<numAtomsPdb; ++i )
-	{
-		for ( int j=0; j<3; ++j )
-		{
-			x_pdb[i][j] /= 10.0;
-		}
-	}
-
-	// Find min and max x,y,z --> get box lengths
-	float ranges[3][2]; // x,y,z and min, max
-	for ( int i=0; i<3; ++i )
-	{
-		for ( int j=0; j<2; ++j )
-		{
-			ranges[i][j] = 0.0;
-		}
-	}
-
-	for ( int i=0; i<numAtomsPdb; ++i )
-	{
-		for ( int d=0; d<3; ++d )
-		{
-			// Min
-			if ( x_pdb[i][d] < ranges[d][0] )
-			{
-				ranges[d][0] = x_pdb[i][d];
-			}
-
-			// Max
-			if ( x_pdb[i][d] > ranges[d][1] )
-			{
-				ranges[d][1] = x_pdb[i][d];
-			}
-
-		}
-	}
-
-	// Print results
-	for ( int d=0; d<3; ++d )
-	{
-		std::cout << "\td=" << d << ": min=" << ranges[d][0]
-				  << ", max=" << ranges[d][1] << std::endl;
-	}
-
-	// Shift the entire box so that the origin is at a corner
-	rvec boxL, x_shift;
-	for ( int d=0; d<3; ++d )
-	{
-		boxL[d]    = 1.04*(ranges[d][1] - ranges[d][0]);
-		x_shift[d] = boxL[d]/2.0; // old box has origin at center
-	}
-
-	for ( int i=0; i<numAtomsPdb; ++i )
-	{
-		for ( int d=0; d<3; ++d )
-		{
-			x_pdb[i][d] += x_shift[d];
-		}
-	}
-
-	//----- Write .gro file -----//
-	// - Note: .gro file indexing starts with 1!
-
-	// Include virtual sites
-	int    numAtomsGro = 4*numWaters;	// Includes M sites
-	int	   oldIndex;
-	float  a = 0.1345833509;
-	float* x_O, * x_HW1, * x_HW2;
-	float  x_M[3];
-
-	FILE* pGroFile;
-	pGroFile = fopen("outconf.gro", "w");
-	fprintf( pGroFile, "Box of TIP4P-type ice derived from LSBU site's pdb file \n");
-	fprintf( pGroFile, "    %d\n", numAtomsGro );
-
-	atomCounter = 0;
-	for ( int i=0; i<numWaters; ++i )
-	{
-		// Index of molecule in new .gro file
-		moleculeIndex = i+1;
-
-		// OW
-		oldIndex = 3*i;			// Index in the old SPC/E-type array
-		atomIndex = 4*i + 1;	// Index in the new .gro file
-		x_O = x_pdb[oldIndex];
-
-		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							moleculeIndex, "ICE", "OW", atomIndex,
-						    x_O[0], x_O[1], x_O[2] );
-
-		// HW1
-		++oldIndex;
-		++atomIndex;
-		x_HW1 = x_pdb[oldIndex];
-
-		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							moleculeIndex, "ICE", "HW1", atomIndex,
-						    x_HW1[0], x_HW1[1], x_HW1[2] );
-
-		// HW2
-		++oldIndex;
-		++atomIndex;
-		x_HW2 = x_pdb[oldIndex];
-
-		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							moleculeIndex, "ICE", "HW2", atomIndex,
-							x_HW2[0], x_HW2[1], x_HW2[2] );
-
-		// MW
-		++atomIndex;
-		++atomIndex;
-		for ( int d=0; d<3; ++d )
-		{
-			x_M[d] = (1.0 - 2.0*a)*x_O[d] + a*x_HW1[d] + a*x_HW2[d];
-		}
-		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							moleculeIndex, "ICE", "MW", atomIndex,
-							x_M[0], x_M[1], x_M[2] );
-
-	}
-	fprintf( pGroFile, "   %2.5f   %2.5f   %2.5f\n", 
-					   boxL[0], boxL[1], boxL[2] );
-
-	fclose(pGroFile);
-
-	// Cleanup
-	free(x_pdb);
-	*/
 }
 
 // Applies the minimum image convention
@@ -679,4 +532,10 @@ bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts)
 		}
 	}
 	return true;
+}
+
+// Vector norm
+double norm(const rvec x)
+{
+	return sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]);
 }

@@ -17,4 +17,7 @@ void keepInBox(const rvec boxL, rvec x);
 // Checks whether each oxygen has 2 hydrogens
 bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts);
 
+// Vector norm
+double norm(const rvec x);
+
 #endif // MAIN_H
