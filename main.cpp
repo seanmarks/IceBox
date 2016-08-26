@@ -1,3 +1,8 @@
+// Icebox.exe
+//
+// TODO:
+// - Fix issues placing H's with unitCellGrid = {1, 1, 1} (possible with this algorithm?)
+//
 
 #include <cmath>
 #include <cstdlib>
@@ -15,129 +20,181 @@
 // Project headers
 #include "main.h"
 
-int main(int argc, char** argv)
+int main(int argc, char* argv[])
 {
-	//--- Input ---//
+	//----- Input -----//
 
 	// FIXME Input number of waters
+	if ( argc < 2 )
+	{
+		std::cout << "  Error: Must submit an ice phase type (\"I_h\" or \"I_c\")" << "\n";
+		exit(1);
+	}
 
-	//---- Geometric constants -----//
+	std::string phase(argv[1]);
+
+	//----- Geometric constants -----//
 
 	// Water geometry: TIP4P/Ice
 	double PI = 3.14159265358979323846;
 	double theta = 109.47 * 2.0*PI/360.0; 	  // tetrahedral bond angle [radians]
 	double theta_HOH = 104.52 * 2.0*PI/360.0; // H-O-H bond angle [radians]
 	double l = 0.275;      		// distance between nearest-neighbor oxygens [nm]
+								// - About the same for I_h and I_c
 	double l_OH = 0.09572; 		// length of O-H bonds [nm]
 	double l_OM = 0.01577;		// O-M distance [nm]
 
-	// Derived geometric constants
-	double l_xy = l*sqrt(2.0/3.0*(1.0 - cos(theta)));
-	double dx = sqrt(3.0)/2.0*l_xy;
-	double dy = l_xy/2.0;
-	double dz = 0.5*sqrt(l*l - l_xy*l_xy);
-
-	// - Distance between H's [nm]
+	// Distance between H's [nm]
 	double l_HH = l_OH*sqrt(2.0*(1.0 - cos(theta_HOH))); // ~0.15139 nm
 
-	//--- Construct the HCP unit cell for the oxygens ---//
-	// - Start with perfectly tetrahedral geometry
-	std::cout << "  IceBox: Constructing HCP unit cell for oxygens." << std::endl;
-	rvec unitCell[8];
+	//----- Construct the unit cell for the oxygens -----//
 
-	// Unit cell box lengths
-	rvec unitCellBoxL;
-	unitCellBoxL[0] = 2.0*dx;
-	unitCellBoxL[1] = 2.0*(l_xy + dy);
-	unitCellBoxL[2] = 2.0*(l + 2.0*dz);
+	rvec* unitCell;     // Unit cell oxygen positions
+	rvec  unitCellBoxL;	// Unit cell box size lengths
 
-	// Lower z-plane
-	// 
-	//          d
-	//          |
-	//          u
-	//        /
-	//      d
-	//      |
-	//      u
-	//
-	unitCell[0][0] = 0.0;	
-	unitCell[0][1] = 0.0;	
-	unitCell[0][2] = 0.0;
+	if ( phase == "I_h" )
+	{
+		// Credit for approach:
+		//	Johannes Zierenberg
+		//  Master's Thesis: "Tip4p Water Model in the Ice Ih Configuration"
+		//  Supervisor: Dr. Wolfhard Janke
+		//	Institut für Theoretische Physik
+		//	Fakultät für Physik und Geowissenschaften, Universität Leipzig
 
-	unitCell[1][0] = unitCell[0][0];	
-	unitCell[1][1] = unitCell[0][1] + l_xy;
-	unitCell[1][2] = unitCell[0][2];
+		// Derived constants for this method
+		double l_xy = l*sqrt(2.0/3.0*(1.0 - cos(theta)));
+		double dx = sqrt(3.0)/2.0*l_xy;
+		double dy = l_xy/2.0;
+		double dz = 0.5*sqrt(l*l - l_xy*l_xy);
+
+		// Start with perfectly tetrahedral geometry
+		std::cout << "  IceBox: Constructing HCP unit cell for oxygens." << std::endl;
+		unitCell = new rvec[8];
+
+		// Unit cell box lengths
+		unitCellBoxL[0] = 2.0*dx;
+		unitCellBoxL[1] = 2.0*(l_xy + dy);
+		unitCellBoxL[2] = 2.0*(l + 2.0*dz);
+
+		// Lower z-plane
+		// - u/d => atom is shifted up/down relative the "midpoint plane"
+        //   
+		// 
+		//              d               3
+		//              |               |
+		//              u               2
+		//            /               /
+		//          d               1
+		//    y     |               |
+		//    ^     u               0
+		//    |
+		//    ---> x
+		//
+		unitCell[0][0] = 0.0;	
+		unitCell[0][1] = 0.0;	
+		unitCell[0][2] = 0.0;
+
+		unitCell[1][0] = unitCell[0][0];	
+		unitCell[1][1] = unitCell[0][1] + l_xy;
+		unitCell[1][2] = unitCell[0][2];
 	
-	unitCell[2][0] = unitCell[1][0] + dx;
-	unitCell[2][1] = unitCell[1][1] + dy;
-	unitCell[2][2] = unitCell[1][2];
+		unitCell[2][0] = unitCell[1][0] + dx;
+		unitCell[2][1] = unitCell[1][1] + dy;
+		unitCell[2][2] = unitCell[1][2];
 
-	unitCell[3][0] = unitCell[2][0];
-	unitCell[3][1] = unitCell[2][1] + l_xy;
-	unitCell[3][2] = unitCell[2][2];
+		unitCell[3][0] = unitCell[2][0];
+		unitCell[3][1] = unitCell[2][1] + l_xy;
+		unitCell[3][2] = unitCell[2][2];
 
-	// Upper z-plane: directly above the first one
-	// 
-	//          u
-	//          |
-	//          d
-	//        /
-	//      u
-	//      |
-	//      d
-	//
-	for ( int i=0; i<4; ++i )
-	{
-		for ( int j=0; j<3; ++j )
+		// Upper z-plane: directly above the first one
+		// 
+		//          u
+		//          |
+		//          d
+		//        /
+		//      u
+		//      |
+		//      d
+		//
+		for ( int i=0; i<4; ++i )
 		{
-			unitCell[i + 4][j] = unitCell[i][j];
+			for ( int j=0; j<3; ++j )
+			{
+				unitCell[i + 4][j] = unitCell[i][j];
+			}
+			unitCell[i + 4][2] += l + 2.0*dz; // spacing between planes
 		}
-		unitCell[i + 4][2] += l + 2.0*dz; // spacing between basal planes
+
+		// Shift all atoms up/down relative to the plane (see diagrams above)
+		for ( int i=0; i<8; ++i )
+		{
+			// Shift up these atoms
+			if ( (i == 0) || (i == 2) || (i == 5) || (i == 7 ) )
+			{
+				unitCell[i][2] += dz;
+			}
+			// Shift down the rest
+			else
+			{
+				unitCell[i][2] -= dz;
+			}
+		}
+
+		// Offset all atoms so that none lie on the edges of the unit cell box
+		rvec x_shift;
+		x_shift[0] = dx/2.0;
+		x_shift[1] = dy/2.0;
+		x_shift[2] = l/2.0;
+
+		for ( int i=0; i<8; ++i )
+		{
+			for ( int j=0; j<3; ++j )
+			{
+				unitCell[i][j] += x_shift[j];
+			}
+		}
+	}
+	else if ( phase == "I_c" ) // TODO
+	{
+		double a = 4.0/sqrt(3.0)*l; // side length of FCC unit cell [nm]
+		double b = sqrt(8.0/3.0)*l; // side length of "internal" tetrahedra [nm]
+
+		// First, make a regular FCC lattice
+	}
+	else
+	{
+		// Error TODO
 	}
 
-	// Shift all atoms up/down relative to the basal plane (see diagrams above)
-	for ( int i=0; i<8; ++i )
-	{
-		// Shift up these atoms
-		if ( (i == 0) || (i == 2) || (i == 5) || (i == 7 ) )
-		{
-			unitCell[i][2] += dz;
-		}
-		// Shift down the rest
-		else
-		{
-			unitCell[i][2] -= dz;
-		}
-	}
+	//----- Replicate the unit cell to produce the oxygen HCP lattice -----//
 
-	// Offset all atoms so that none lie on the edges of the unit cell box
-	rvec x_shift;
-	x_shift[0] = dx/2.0;
-	x_shift[1] = dy/2.0;
-	x_shift[2] = l/2.0;
+	// NOTE: To get about 4,000 ice molecules in a roughly cubic volume, use:
+	//   			int unitCellGrid[3] = { 13, 6, 7 }; // For ice Ih
 
-	for ( int i=0; i<8; ++i )
-	{
-		for ( int j=0; j<3; ++j )
-		{
-			unitCell[i][j] += x_shift[j];
-		}
-	}
-
-	//--- Replicate the unit cell to produce the oxygen HCP lattice ---//
-	// - To get about 4,000 ice molecules in a roughly cubic volume, use:
-	//   			int unitCellGrid[3] = { 12, 6, 7 };
-	int unitCellGrid[3] = { 13, 6, 7 };
-	//int unitCellGrid[3] = { 2, 2, 2 };
+	// Unit cell mesh
+	//int unitCellGrid[3] = { 13, 6, 7 };
+	//int unitCellGrid[3] = { 1, 1, 1 };
+	int unitCellGrid[3] = { 2, 2, 2 };
 
 	std::cout << "  IceBox: Constructing full HCP lattice of oxygens." << std::endl;
 
-	// Eight waters per unit cell
+	// Eight waters per unit cell (for both I_h and I_c)
 	int numWaters = 8*unitCellGrid[0]*unitCellGrid[1]*unitCellGrid[2];
 
 	// Allocate memory
-	rvec* x_HCP = (rvec*) malloc( numWaters*sizeof(rvec) );
+	rvec* x_O_lattice;
+	try
+	{
+		x_O_lattice = new rvec[numWaters];
+	}
+	catch (std::bad_alloc& ba)
+	{
+		std::cerr << "  IceBox: Unable to allocate memory for oxygen lattice "
+		          << "(exception: " << ba.what() << ")." << "\n";
+		exit(1);
+	}
+
+	// Replicate unit cell
 	int atomCounter = 0;
 	for ( int i=0; i<unitCellGrid[0]; ++i ) // x cells
 	{
@@ -148,9 +205,9 @@ int main(int argc, char** argv)
 				for ( int m=0; m<8; ++m ) // unit cell atoms
 				{
 					// x, y, z dimensions
-					x_HCP[atomCounter][0] = unitCell[m][0] + i*unitCellBoxL[0];
-					x_HCP[atomCounter][1] = unitCell[m][1] + j*unitCellBoxL[1];
-					x_HCP[atomCounter][2] = unitCell[m][2] + k*unitCellBoxL[2];
+					x_O_lattice[atomCounter][0] = unitCell[m][0] + i*unitCellBoxL[0];
+					x_O_lattice[atomCounter][1] = unitCell[m][1] + j*unitCellBoxL[1];
+					x_O_lattice[atomCounter][2] = unitCell[m][2] + k*unitCellBoxL[2];
 
 					++atomCounter;
 				}
@@ -165,8 +222,71 @@ int main(int argc, char** argv)
 		boxL[j] = unitCellGrid[j]*unitCellBoxL[j];
 	}
 
+	//----- Check that all oxygens are tetrahedrally coordinated -----//
+
+	std::cout << "  IceBox: Checking oxygen lattice for tetrahedral geometry "
+	          << "and number of nearest neighbors." << "\n";
+
+	// Neighbor list TODO
+	double dist, distSq, pairDist = 1.01*l;
+	rvec   x_i_j; // Direction: i --> j
+	std::vector<std::vector<int>> neighborList(numWaters);
+	for ( int i=0; i<numWaters; ++i )
+	{
+		for ( int j=i+1; j<numWaters; ++j )
+		{
+			minImage(x_O_lattice[i], x_O_lattice[j], boxL, x_i_j, distSq);
+			dist = sqrt(distSq);
+			{
+				if ( dist <= pairDist )
+				{
+					neighborList[i].push_back(j);
+					neighborList[j].push_back(i);
+				}
+			}
+		}
+	}
+
+	// Check angles and # neighbors
+	rvec   x_i_k;
+	int    numNeighbors;
+	double theta_high = 1.01*theta;
+	double theta_low  = 0.99*theta;
+	double theta_ijk;
+	for ( int i=0; i<numWaters; ++i )
+	{
+		numNeighbors = neighborList[i].size();
+		if ( numNeighbors != 4 )
+		{
+			std::cerr << "  IceBox: Atom " << i << " in the oxygen lattice has "
+			          << numNeighbors << " neighbors (should have 4)!" << "\n";
+			exit(1);
+		}
+
+		// Choose 'j' as the first neighbor of 'i' in the list
+		int j = neighborList[i][0];
+		minImage(x_O_lattice[i], x_O_lattice[j], boxL, x_i_j, distSq);
+
+		for ( int n=1; n<numNeighbors; ++n )
+		{
+			int k = neighborList[i][n];
+			minImage(x_O_lattice[i], x_O_lattice[k], boxL, x_i_k, distSq);
+
+			theta_ijk = angleBetweenVectors(x_i_j, x_i_k);
+			if ( (theta_ijk < theta_low) || (theta_high < theta_ijk) )
+			{
+				std::cerr << "  IceBox: Angle " << i << "-" << j << "-" << k
+                          << " (in the oxygen lattice) is " << theta_ijk
+				          << " (should be " << theta << ")!" << "\n";
+				exit(1);
+			}
+		}
+	}
+
 	//----- Place hydrogens using a Monte Carlo routine -----//
-	// Method of Buch et al., J. Phys. Chem. B 102.44 (1998)
+	// Method: Buch et al., J. Phys. Chem. B 102.44 (1998)
+
+	std::cout << "  Icebox: Finding all O-O nearest-neighbor pairs" << "\n";
 
 	// Set up RNG engine
 	std::seed_seq seedSequence = { 749725171 };
@@ -175,7 +295,7 @@ int main(int argc, char** argv)
 	// Find all O-O nearest-neighbor pairs, and randomly assign an H to one atom in each pair
 	int   numH = 2*numWaters;
 	int   numPairs = numH;
-	Pair* pairs = (Pair*) malloc(numPairs*sizeof(Pair)); // NOTE: index over pairs = index over H's
+	Pair* pairs = new Pair[numPairs];  // NOTE: index over pairs = index over H's
 
 	std::vector<int>  hydrogenCounts(numWaters, 0); 		// how many bound H's each oxygen has
 	std::vector<int>  hydrogenOwners(numH, 0);	   			// which O has the H
@@ -184,14 +304,12 @@ int main(int argc, char** argv)
 	std::uniform_int_distribution<int> coin_flip(0, 1);
 
 	int    pairIndex = 0;
-	double dist, distSq, pairDist = 1.01*l;
-	rvec   x_i_j; // Direction: i --> j
 	for ( int i=0; i<numWaters; ++i )
 	{
 		for ( int j=i+1; j<numWaters; ++j )
 		{
 			// Minimum image vector: i --> j
-			minImage(x_HCP[i], x_HCP[j], boxL, x_i_j, distSq);
+			minImage(x_O_lattice[i], x_O_lattice[j], boxL, x_i_j, distSq);
 			dist = sqrt(distSq); // = || x_i_j ||_2
 
 			if ( dist <= pairDist )
@@ -297,7 +415,7 @@ int main(int argc, char** argv)
 	double norm_x;
 	rvec   x_OW, x_MW, x_HW1, x_HW2;
 	rvec   x_OO_1, x_OO_2, unitBisector, unitNormal; // working vectors
-	rvec*  x_all = (rvec*) malloc(numAtoms*sizeof(rvec));
+	rvec*  x_all = new rvec[numAtoms];
 
 	// Length of the projection of the O-H bond onto the H-O-H unit bisector
 	double l_proj = sqrt(l_OH*l_OH - l_HH*l_HH/4.0);
@@ -307,7 +425,7 @@ int main(int argc, char** argv)
 		// Oxygen
 		for ( int d=0; d<3; ++d )
 		{
-			x_OW[d] = x_HCP[i][d];
+			x_OW[d] = x_O_lattice[i][d];
 		}
 
 		// For the rest, first get vectors connecting the associated oxygens
@@ -332,12 +450,12 @@ int main(int argc, char** argv)
 				// Connecting vector: owner --> partner
 				if ( count == 0 )
 				{
-					minImage(x_HCP[owner], x_HCP[partner], boxL, x_OO_1, distSq);
+					minImage(x_O_lattice[owner], x_O_lattice[partner], boxL, x_OO_1, distSq);
 					++count;
 				}
 				else if ( count == 1 )
 				{
-					minImage(x_HCP[owner], x_HCP[partner], boxL, x_OO_2, distSq);
+					minImage(x_O_lattice[owner], x_O_lattice[partner], boxL, x_OO_2, distSq);
 					++count;
 				}
 				else
@@ -388,7 +506,7 @@ int main(int argc, char** argv)
 		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_MW[d]; }
 	}
 
-	// Check results (use 1% margin of error)
+	//----- Check results (use 1% margin of error) -----//
 	std::cout << "  IceBox: Checking configuration." << std::endl;
 	for ( int i=0; i<numWaters; ++i )
 	{
@@ -482,11 +600,13 @@ int main(int argc, char** argv)
 	fclose(pGroFile);
 
 	//----- Cleanup -----//
-	free(x_HCP);
-	free(x_all);
-	free(pairs);
-
+	delete[] x_O_lattice;
+	delete[] x_all;
+	delete[] pairs;
+	delete[] unitCell;
 }
+
+
 
 // Applies the minimum image convention
 void minImage(const rvec x1, const rvec x2, const rvec boxL, rvec x12, double& distSq)
@@ -506,6 +626,8 @@ void minImage(const rvec x1, const rvec x2, const rvec boxL, rvec x12, double& d
 	return;
 }
 
+
+
 // Keeps the atom in the simulaton box by applying PBCs
 void keepInBox(const rvec boxL, rvec x)
 {
@@ -519,6 +641,8 @@ void keepInBox(const rvec boxL, rvec x)
 	return;
 
 }
+
+
 
 // Checks whether each oxygen has 2 hydrogens
 bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts)
@@ -534,8 +658,32 @@ bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts)
 	return true;
 }
 
+
+
 // Vector norm
 double norm(const rvec x)
 {
 	return sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]);
 }
+
+
+
+// Use the dot product to get the angle between the vectors
+double angleBetweenVectors(const rvec a, const rvec b)
+{
+	
+	double norm_a = 0.0, norm_b = 0.0, a_dot_b = 0.0;
+	for ( int i=0; i<3; ++i )
+	{
+		norm_a  += a[i]*a[i];
+		norm_b  += b[i]*b[i];
+		a_dot_b += a[i]*b[i];
+	}
+	norm_a = sqrt(norm_a);
+	norm_b = sqrt(norm_b);
+
+	double theta = acos(a_dot_b/(norm_a*norm_b));
+
+	return theta;
+}
+

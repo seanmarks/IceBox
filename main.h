@@ -20,4 +20,7 @@ bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts);
 // Vector norm
 double norm(const rvec x);
 
+// Use the dot product to get the angle between the vectors
+double angleBetweenVectors(const rvec a, const rvec b);
+
 #endif // MAIN_H
