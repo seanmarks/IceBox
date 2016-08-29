@@ -3,24 +3,24 @@
 #define MAIN_H
 
 // Position vector
-typedef double rvec[3];
+typedef double Rvec[3];
 
 // Contains the indices of two atoms which constitute a pair
 typedef int Pair[2];
 
 // Apply the minimum image convention
-void minImage(const rvec x1, const rvec x2, const rvec boxL, rvec x12, double& distSq);
+void minImage(const Rvec x1, const Rvec x2, const Rvec boxL, Rvec x12, double& distSq);
 
 // Keep the atom in the simulaton box
-void keepInBox(const rvec boxL, rvec x);
+void keepInBox(const Rvec boxL, Rvec x);
 
 // Checks whether each oxygen has 2 hydrogens
 bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts);
 
 // Vector norm
-double norm(const rvec x);
+double norm(const Rvec x);
 
 // Use the dot product to get the angle between the vectors
-double angleBetweenVectors(const rvec a, const rvec b);
+double angleBetweenVectors(const Rvec a, const Rvec b);
 
 #endif // MAIN_H

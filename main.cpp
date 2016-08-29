@@ -49,8 +49,8 @@ int main(int argc, char* argv[])
 
 	//----- Construct the unit cell for the oxygens -----//
 
-	rvec* unitCell;     // Unit cell oxygen positions
-	rvec  unitCellBoxL;	// Unit cell box size lengths
+	Rvec* unitCell;     // Unit cell oxygen positions
+	Rvec  unitCellBoxL;	// Unit cell box size lengths
 
 	if ( phase == "I_h" )
 	{
@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
 
 		// Start with perfectly tetrahedral geometry
 		std::cout << "  IceBox: Constructing HCP unit cell for oxygens." << std::endl;
-		unitCell = new rvec[8];
+		unitCell = new Rvec[8];
 
 		// Unit cell box lengths
 		unitCellBoxL[0] = 2.0*dx;
@@ -141,7 +141,7 @@ int main(int argc, char* argv[])
 		}
 
 		// Offset all atoms so that none lie on the edges of the unit cell box
-		rvec x_shift;
+		Rvec x_shift;
 		x_shift[0] = dx/2.0;
 		x_shift[1] = dy/2.0;
 		x_shift[2] = l/2.0;
@@ -172,9 +172,9 @@ int main(int argc, char* argv[])
 	//   			int unitCellGrid[3] = { 13, 6, 7 }; // For ice Ih
 
 	// Unit cell mesh
-	//int unitCellGrid[3] = { 13, 6, 7 };
+	int unitCellGrid[3] = { 13, 6, 7 };
 	//int unitCellGrid[3] = { 1, 1, 1 };
-	int unitCellGrid[3] = { 2, 2, 2 };
+	//int unitCellGrid[3] = { 2, 2, 2 };
 
 	std::cout << "  IceBox: Constructing full HCP lattice of oxygens." << std::endl;
 
@@ -182,10 +182,10 @@ int main(int argc, char* argv[])
 	int numWaters = 8*unitCellGrid[0]*unitCellGrid[1]*unitCellGrid[2];
 
 	// Allocate memory
-	rvec* x_O_lattice;
+	Rvec* x_O_lattice;
 	try
 	{
-		x_O_lattice = new rvec[numWaters];
+		x_O_lattice = new Rvec[numWaters];
 	}
 	catch (std::bad_alloc& ba)
 	{
@@ -216,71 +216,10 @@ int main(int argc, char* argv[])
 	}
 
 	// Simulation box lengths
-	rvec boxL;
+	Rvec boxL;
 	for ( int j=0; j<3; ++j )
 	{
 		boxL[j] = unitCellGrid[j]*unitCellBoxL[j];
-	}
-
-	//----- Check that all oxygens are tetrahedrally coordinated -----//
-
-	std::cout << "  IceBox: Checking oxygen lattice for tetrahedral geometry "
-	          << "and number of nearest neighbors." << "\n";
-
-	// Neighbor list TODO
-	double dist, distSq, pairDist = 1.01*l;
-	rvec   x_i_j; // Direction: i --> j
-	std::vector<std::vector<int>> neighborList(numWaters);
-	for ( int i=0; i<numWaters; ++i )
-	{
-		for ( int j=i+1; j<numWaters; ++j )
-		{
-			minImage(x_O_lattice[i], x_O_lattice[j], boxL, x_i_j, distSq);
-			dist = sqrt(distSq);
-			{
-				if ( dist <= pairDist )
-				{
-					neighborList[i].push_back(j);
-					neighborList[j].push_back(i);
-				}
-			}
-		}
-	}
-
-	// Check angles and # neighbors
-	rvec   x_i_k;
-	int    numNeighbors;
-	double theta_high = 1.01*theta;
-	double theta_low  = 0.99*theta;
-	double theta_ijk;
-	for ( int i=0; i<numWaters; ++i )
-	{
-		numNeighbors = neighborList[i].size();
-		if ( numNeighbors != 4 )
-		{
-			std::cerr << "  IceBox: Atom " << i << " in the oxygen lattice has "
-			          << numNeighbors << " neighbors (should have 4)!" << "\n";
-			exit(1);
-		}
-
-		// Choose 'j' as the first neighbor of 'i' in the list
-		int j = neighborList[i][0];
-		minImage(x_O_lattice[i], x_O_lattice[j], boxL, x_i_j, distSq);
-
-		for ( int n=1; n<numNeighbors; ++n )
-		{
-			int k = neighborList[i][n];
-			minImage(x_O_lattice[i], x_O_lattice[k], boxL, x_i_k, distSq);
-
-			theta_ijk = angleBetweenVectors(x_i_j, x_i_k);
-			if ( (theta_ijk < theta_low) || (theta_high < theta_ijk) )
-			{
-				std::cerr << "  IceBox: Angle " << i << "-" << j << "-" << k
-                          << " (in the oxygen lattice) is " << theta_ijk
-				          << " (should be " << theta << ")!" << "\n";
-				exit(1);
-			}
-		}
 	}
 
 	//----- Place hydrogens using a Monte Carlo routine -----//
@@ -303,7 +242,12 @@ int main(int argc, char* argv[])
 
 	std::uniform_int_distribution<int> coin_flip(0, 1);
 
+	// Working variables
 	int    pairIndex = 0;
+	double dist, distSq;
+	double pairDist = 1.001*l; // Distance between nearest-neighbor oxygens
+	Rvec   x_i_j;              // Direction: i --> j
+
 	for ( int i=0; i<numWaters; ++i )
 	{
 		for ( int j=i+1; j<numWaters; ++j )
@@ -352,7 +296,7 @@ int main(int argc, char* argv[])
 	bool isSwapAccepted;
 	std::uniform_int_distribution<int> randomPair(0, numPairs - 1);
 
-	while ( areHydrogensCorrectlyPlaced(hydrogenCounts) == false ) //TODO
+	while ( areHydrogensCorrectlyPlaced(hydrogenCounts) == false )
 	{
 		pairIndex = randomPair(rng);
 		owner = hydrogenOwners[pairIndex];
@@ -410,12 +354,13 @@ int main(int argc, char* argv[])
 	}
 
 	//----- Construct the full coordinates array -----//
+
 	std::cout << "  IceBox: Constructing full array of atomic positions." << std::endl;
 	int    numAtoms = 4*numWaters, count, atomIndex;
 	double norm_x;
-	rvec   x_OW, x_MW, x_HW1, x_HW2;
-	rvec   x_OO_1, x_OO_2, unitBisector, unitNormal; // working vectors
-	rvec*  x_all = new rvec[numAtoms];
+	Rvec   x_OW, x_MW, x_HW1, x_HW2;
+	Rvec   x_OO_1, x_OO_2, unitBisector, unitNormal; // working vectors
+	Rvec*  x_all = new Rvec[numAtoms];
 
 	// Length of the projection of the O-H bond onto the H-O-H unit bisector
 	double l_proj = sqrt(l_OH*l_OH - l_HH*l_HH/4.0);
@@ -506,13 +451,17 @@ int main(int argc, char* argv[])
 		for ( int d=0; d<3; ++d ) { x_all[atomIndex][d] = x_MW[d]; }
 	}
 
-	//----- Check results (use 1% margin of error) -----//
-	std::cout << "  IceBox: Checking configuration." << std::endl;
+	//----- Check final results -----//
+
+	std::cout << "  IceBox: Checking final configuration." << std::endl;
+
+	// Check the internal structure of each molecule (use 1% margin of error)
 	for ( int i=0; i<numWaters; ++i )
 	{
+		// Index of the oxygen
 		atomIndex = 4*i;
 
-		// O-H1
+		// O-H1 distance
 		minImage(x_all[atomIndex], x_all[atomIndex+1], boxL, x_i_j, distSq);
 		dist = sqrt(distSq);
 		if ( dist > 1.01*l_OH )
@@ -521,7 +470,7 @@ int main(int argc, char* argv[])
 					  << "(should be " << l_OH << " nm)." << std::endl;
 		}
 
-		// O-H2
+		// O-H2 distance
 		minImage(x_all[atomIndex], x_all[atomIndex+2], boxL, x_i_j, distSq);
 		dist = sqrt(distSq);
 		if ( dist > 1.01*l_OH )
@@ -530,7 +479,7 @@ int main(int argc, char* argv[])
 				      << "(should be " << l_OH << " nm)." << std::endl;
 		}
 
-		// H1-H2
+		// H1-H2 distance
 		minImage(x_all[atomIndex+1], x_all[atomIndex+2], boxL, x_i_j, distSq);
 		dist = sqrt(distSq);
 		if ( dist > 1.01*l_HH )
@@ -539,7 +488,7 @@ int main(int argc, char* argv[])
 					  << "(should be " << l_HH << " nm)." << std::endl;
 		}
 
-		// O-M
+		// O-M distance
 		minImage(x_all[atomIndex], x_all[atomIndex+3], boxL, x_i_j, distSq);
 		dist = sqrt(distSq);
 		if ( dist > 1.01*l_OM ) 
@@ -549,8 +498,106 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	// Neighbor list for oxygen atoms
+	std::vector<std::vector<int>> neighborList(numWaters);
+
+	for ( int i=0; i<numWaters; ++i )
+	{
+		for ( int j=i+1; j<numWaters; ++j )
+		{
+			minImage(x_all[4*i], x_all[4*j], boxL, x_i_j, distSq);
+			dist = sqrt(distSq);
+			{
+				if ( dist <= pairDist )
+				{
+					neighborList[i].push_back(j);
+					neighborList[j].push_back(i);
+				}
+			}
+		}
+	}
+
+	// Check that all oxygens are tetrahedrally coordinated
+	std::cout << "  IceBox: Checking oxygen lattice for tetrahedral geometry "
+	          << "and number of nearest-neighbor oxygens." << "\n";
+
+	Rvec   x_i_k;
+	int    numNeighbors;
+	double theta_high = 1.01*theta;
+	double theta_low  = 0.99*theta;
+	double theta_ijk;
+	for ( int i=0; i<numWaters; ++i )
+	{
+		numNeighbors = neighborList[i].size();
+		if ( numNeighbors != 4 )
+		{
+			std::cerr << "  IceBox: Atom " << i << " in the oxygen lattice has "
+			          << numNeighbors << " neighbors (should have 4)!" << "\n";
+			exit(1);
+		}
+
+		// Choose 'j' as the first neighbor of 'i' in the list
+		int j = neighborList[i][0];
+		minImage(x_all[4*i], x_all[4*j], boxL, x_i_j, distSq);
+
+		for ( int n=1; n<numNeighbors; ++n )
+		{
+			int k = neighborList[i][n];
+			minImage(x_all[4*i], x_all[4*k], boxL, x_i_k, distSq);
+
+			theta_ijk = angleBetweenVectors(x_i_j, x_i_k);
+			if ( (theta_ijk < theta_low) || (theta_high < theta_ijk) )
+			{
+				std::cerr << "  IceBox: Angle " << 4*i << "-" << 4*j << "-" << 4*k
+                          << " (between neighboring oxygen atoms) is " << theta_ijk
+				          << " (should be " << theta << ")!" << "\n";
+				exit(1);
+			}
+		}
+	}
+
+	// Check the hydrogens that are coordinated with (but not bonded to) each oxygen TODO
+
+	// - Hydrogen Bond length (from H to coordinated O) [nm]
+	double l_HB = sqrt( (l - l_proj)*(l - l_proj) + l_HH*l_HH/4.0 );
+
+	pairDist = 1.001*l_HB;
+	int numCoordinatedHydrogens;
+	for ( int i=0; i<numWaters; ++i )
+	{
+		numCoordinatedHydrogens = 0;
+
+		for ( int j=0; j<numWaters; ++j )
+		{
+			if ( i != j )
+			{
+				// O of water 'i' and H_k of water 'j'
+				for ( int k=1; k<=2; ++k )
+				{
+					minImage(x_all[4*i], x_all[4*j + k], boxL, x_i_k, distSq);
+					dist = sqrt(distSq);
+
+					if ( (dist <= pairDist) )//&& (dist >= 0.999*l_OH) )
+					{
+						++numCoordinatedHydrogens;
+					}
+				}
+			}
+		}
+
+		// Check
+		if ( numCoordinatedHydrogens != 2 )
+		{
+			std::cerr << "  IceBox: Water " << i << " is coordinated with "
+			          << numCoordinatedHydrogens << " hydrogens that are not "
+			          << "bonded to it (should be 2!)." << "\n";
+			exit(1);
+		}
+	}
+
 	//----- Write .gro file -----//
 	// - Note: .gro file indexing starts with 1!
+
 	std::cout << "  IceBox: Writing .gro file." << std::endl;
 
 	// File name
@@ -609,7 +656,7 @@ int main(int argc, char* argv[])
 
 
 // Applies the minimum image convention
-void minImage(const rvec x1, const rvec x2, const rvec boxL, rvec x12, double& distSq)
+void minImage(const Rvec x1, const Rvec x2, const Rvec boxL, Rvec x12, double& distSq)
 {
 	distSq = 0.0;
 
@@ -629,7 +676,7 @@ void minImage(const rvec x1, const rvec x2, const rvec boxL, rvec x12, double& d
 
 
 // Keeps the atom in the simulaton box by applying PBCs
-void keepInBox(const rvec boxL, rvec x)
+void keepInBox(const Rvec boxL, Rvec x)
 {
 	for ( int d=0; d<3; d++ )
 	{
@@ -661,7 +708,7 @@ bool areHydrogensCorrectlyPlaced(std::vector<int> hydrogenCounts)
 
 
 // Vector norm
-double norm(const rvec x)
+double norm(const Rvec x)
 {
 	return sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]);
 }
@@ -669,7 +716,7 @@ double norm(const rvec x)
 
 
 // Use the dot product to get the angle between the vectors
-double angleBetweenVectors(const rvec a, const rvec b)
+double angleBetweenVectors(const Rvec a, const Rvec b)
 {
 	
 	double norm_a = 0.0, norm_b = 0.0, a_dot_b = 0.0;
