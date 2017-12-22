@@ -1,8 +1,18 @@
 // Icebox.exe
 //
+// INPUT:
+// - Phase
+//   - I_hex/hexagonal/I_h
+//   - cubic/I_c
+// - Number of unit cells along each axis (Nx Ny Nz)
+//   - To get about 4,000 ice molecules in a roughly cubic volume ...
+//     - hex:    13  6  7
+//     - cubic:   8  8  8
+//
 // TODO:
 // - Fix issues placing H's with unitCellGrid = {1, 1, 1} (possible with this algorithm?)
-//
+// - Fix fixed-format output when #atoms or #waters is >5 char long in decimal format
+// - Change atom names to "ice" (e.g. OI instead of OW)
 
 // Project headers
 #include "main.h"
@@ -16,8 +26,19 @@ int main(int argc, char* argv[])
 		std::cout << "  Error: Must submit an ice phase type (\"I_h\" or \"I_c\")" << "\n";
 		exit(1);
 	}
+	else if ( argc < 5 ) {
+		std::cout << "  Error: Must provide number of unit cells along each axis (Nx Ny Nz)\n";
+		exit(1);
+	}
 
+	// Crystal polymorph
 	std::string phase(argv[1]);
+
+	// Unit cell mesh
+	int unitCellGrid[DIM];
+	unitCellGrid[0] = std::atoi( argv[2] );
+	unitCellGrid[1] = std::atoi( argv[3] );
+	unitCellGrid[2] = std::atoi( argv[4] );
 
 	//----- Constants -----//
 
@@ -39,11 +60,11 @@ int main(int argc, char* argv[])
 
 	//----- Construct the unit cell for the oxygens -----//
 
-	Real3* unitCell;     // Unit cell oxygen positions
+	Real3* unitCell;      // Unit cell oxygen positions
 	Real3  unitCellBoxL;	// Unit cell box size lengths
 	int numOxygensPerUnitCell;
 
-	if ( phase == "I_h" or phase == "hex" or phase == "hexagonal" ) {
+	if ( phase == "I_h" or phase == "hex" or phase == "hexagonal" ) { // Hexagonal ice
 		// Credit for approach:
 		//	Johannes Zierenberg
 		//  Master's Thesis: "Tip4p Water Model in the Ice Ih Configuration"
@@ -194,15 +215,8 @@ int main(int argc, char* argv[])
 		exit(1);
 	}
 
-	//----- Replicate the unit cell to produce the oxygen HCP lattice -----//
 
-	// NOTE: To get about 4,000 ice molecules in a roughly cubic volume, use:
-	//   			int unitCellGrid[DIM] = { 13, 6, 7 }; // For ice Ih
-
-	// Unit cell mesh
-	int unitCellGrid[DIM] = { 13, 6, 7 };
-	//int unitCellGrid[DIM] = { 1, 1, 1 };
-	//int unitCellGrid[DIM] = { 2, 2, 2 };
+	//----- Replicate the unit cell to produce the oxygen lattice -----//
 
 	std::cout << "  IceBox: Constructing full lattice of oxygens." << std::endl;
 
