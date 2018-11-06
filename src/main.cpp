@@ -36,6 +36,7 @@ int main(int argc, char* argv[])
 	const double q_H = 0.520;
 	const double q_M = -2.0*q_H;
 	const std::vector<double> charges = { 0.0, q_H, q_H, q_M };
+	int   num_atoms_per_water = charges.size();
 
 	// Length of the projection of the O-H bond onto the H-O-H unit bisector
 	const double l_proj = sqrt(l_OH*l_OH - l_HH*l_HH/4.0);
@@ -47,7 +48,7 @@ int main(int argc, char* argv[])
 	//----- Input -----//
 
 	// Check a configuration stored as a gro file
-	if ( argc == 3 and std::string(argv[1]) == "check" ) {
+	if ( argc >= 3 and std::string(argv[1]) == "check" ) {
 		// Check structure
 		std::cout << "  IceBox: Checking configuration." << std::endl;
 
@@ -62,6 +63,9 @@ int main(int argc, char* argv[])
 		Real3 dipole;
 		double mu;
 		double tol = 0.05;
+		if ( argc == 4 ) {
+			tol = std::stod( argv[3] );
+		}
 		check_structure( tol, coords, boxL, charges, l_OH, l_HH, l_OM, l_HB, l, theta,
 										 dipole, mu );
 
@@ -285,6 +289,20 @@ int main(int argc, char* argv[])
 	for ( int j=0; j<DIM; ++j ) {
 		boxL[j] = unit_cell_grid[j]*unit_cellBoxL[j];
 	}
+
+	// Density
+	double molar_mass = 18.02;        // g/mol
+	const double N_Av = 6.022e23;     // Avogadro's number (#/mol)
+	const double cm_per_nm = 1.0e-7;  // conversion factor
+	double box_volume = 1.0;          // in cm&3
+	for ( int d=0; d<DIM; ++d ) {
+		box_volume *= boxL[d]*cm_per_nm;
+	}
+	//              (molecules/cm^3)         g/(molecule)
+	double rho = (num_waters/box_volume)*(molar_mass/N_Av);
+
+	std::cout << "  Icebox: Density is " << rho << " g/cm^3.\n";
+
 
 	//----- Place hydrogens using a Monte Carlo routine -----//
 	// Method: Buch et al., J. Phys. Chem. B 102.44 (1998)
@@ -836,6 +854,8 @@ void check_structure(
 	double theta_high = (1.0 + tol)*theta;
 	double theta_low  = (1.0 - tol)*theta;
 	double theta_ijk;
+	const double PI = 3.14159265358979323846;
+	const double deg_per_rad = 180.0/PI;
 	for ( int i=0; i<num_waters; ++i ) {
 		num_neighbors = neighbor_list[i].size();
 		if ( num_neighbors != 4 ) {
@@ -855,9 +875,9 @@ void check_structure(
 			theta_ijk = angleBetweenVectors(x_i_j, x_i_k);
 			if ( (theta_ijk < theta_low) || (theta_high < theta_ijk) ) {
 				std::cerr << "  IceBox: Angle " << 4*i << "-" << 4*j << "-" << 4*k
-                          << " (between neighboring oxygen atoms) is " << theta_ijk
-				          << " (should be " << theta << ")!" << "\n";
-				exit(1);
+                          << " (between neighboring oxygen atoms) is " << theta_ijk*deg_per_rad
+				          << " degrees (should be " << theta*deg_per_rad << " degrees)!" << "\n";
+				//exit(1);
 			}
 		}
 	}
