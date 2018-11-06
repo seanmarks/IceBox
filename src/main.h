@@ -3,6 +3,7 @@
 #define MAIN_H
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>

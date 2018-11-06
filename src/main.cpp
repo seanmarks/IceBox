@@ -5,7 +5,7 @@
 //   - I_hex/hexagonal/I_h
 //   - cubic/I_c
 // - Number of unit cells along each axis (Nx Ny Nz)
-//   - To get about 4,000 ice molecules in a roughly cubic volume ...
+//   - To get about 4,000 ice molecules in a roughly cubic volume (L ~ 5 nm) ...
 //     - hex:    13  6  7
 //     - cubic:   8  8  8
 //
@@ -14,7 +14,6 @@
 // - Fix fixed-format output when #atoms or #waters is >5 char long in decimal format
 // - Change atom names to "ice" (e.g. OI instead of OW)
 
-// Project headers
 #include "main.h"
 
 int main(int argc, char* argv[])
@@ -266,8 +265,10 @@ int main(int argc, char* argv[])
 	std::cout << "  Icebox: Finding all O-O nearest-neighbor pairs" << "\n";
 
 	// Set up RNG engine
-	std::seed_seq seedSequence = { 749725171 };
-	std::mt19937  rng(seedSequence);	// Mersenne Twister
+	//std::seed_seq seed_sequence = { 749725171 };
+	unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+	std::seed_seq seed_sequence = { seed };
+	std::mt19937 rng(seed_sequence);	// Mersenne Twister
 
 	// Find all O-O nearest-neighbor pairs, and randomly assign an H to one atom in each pair
 	int   numH = 2*numWaters;
@@ -636,28 +637,28 @@ int main(int argc, char* argv[])
 		atomIndex = 4*i;	   // Index in the coordinates array "x_all"
 
 		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							i+1, "ICE", "OW", atomIndex+1,
+							i+1, "ICE", "OI", atomIndex+1,
 						    x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
 
 		// HW1
 		++atomIndex;
 
 		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							i+1, "ICE", "HW1", atomIndex+1,
+							i+1, "ICE", "HI1", atomIndex+1,
 						    x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
 
 		// HW2
 		++atomIndex;
 
 		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							i+1, "ICE", "HW2", atomIndex+1,
+							i+1, "ICE", "HI2", atomIndex+1,
 							x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
 
 		// MW
 		++atomIndex;
 
 		fprintf( pGroFile, "%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
-							i+1, "ICE", "MW", atomIndex+1,
+							i+1, "ICE", "MI", atomIndex+1,
 							x_all[atomIndex][0], x_all[atomIndex][1], x_all[atomIndex][2] );
 
 	}
